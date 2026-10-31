@@ -1,0 +1,17 @@
+// tests/payloads/message_submit.json5
+// Command: /submit
+{
+  message_id: 105,
+  from: {
+    id: 111222,
+    is_bot: false,
+    first_name: "Abebe",
+    username: "abebek"
+  },
+  chat: {
+    id: 111222,
+    type: "private"
+  },
+  date: 1788555600,
+  text: "/submit"
+}

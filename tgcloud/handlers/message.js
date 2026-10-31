@@ -1,13 +1,8 @@
-// handlers/message.js — runs on each `message` update. The file name is the
-// Telegram update type; the platform calls the default export with the matching
-// payload (here, a Message). The full update is available as `ctx.update`.
+// handlers/message.js
+// Dispatches incoming Telegram 'message' updates to lib/router.js
 
-import { api } from 'sdk';
+import { handleMessageUpdate } from '../lib/router.js';
 
 export default async function (message, ctx) {
-  // Echo the text back — replace with your own logic.
-  await api.sendMessage({
-    chat_id: message.chat.id,
-    text: `You said: ${message.text ?? '(no text)'}`,
-  });
+  await handleMessageUpdate(message, ctx);
 }

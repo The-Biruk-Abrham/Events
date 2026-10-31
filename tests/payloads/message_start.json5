@@ -1,0 +1,19 @@
+// tests/payloads/message_start.json5
+// Command: /start from a user
+{
+  message_id: 101,
+  from: {
+    id: 111222,
+    is_bot: false,
+    first_name: "Abebe",
+    last_name: "Kebede",
+    username: "abebek"
+  },
+  chat: {
+    id: 111222,
+    type: "private",
+    first_name: "Abebe"
+  },
+  date: 1788555600,
+  text: "/start"
+}

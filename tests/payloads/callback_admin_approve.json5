@@ -1,0 +1,22 @@
+// tests/payloads/callback_admin_approve.json5
+// Callback query: adm:app:1 (Approve Event ID 1)
+{
+  id: "cb_q_approve_103",
+  from: {
+    id: 999000,
+    is_bot: false,
+    first_name: "Admin User",
+    username: "admin_user"
+  },
+  message: {
+    message_id: 501,
+    chat: {
+      id: -1001234567890,
+      type: "supergroup",
+      title: "AASTU Events Admin Group"
+    },
+    date: 1788555600,
+    text: "New Event Pending Approval"
+  },
+  data: "adm:app:1"
+}

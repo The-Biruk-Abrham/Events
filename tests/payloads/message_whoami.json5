@@ -1,0 +1,17 @@
+// tests/payloads/message_whoami.json5
+// Command: /whoami
+{
+  message_id: 106,
+  from: {
+    id: 111222,
+    is_bot: false,
+    first_name: "Abebe",
+    username: "abebek"
+  },
+  chat: {
+    id: 111222,
+    type: "private"
+  },
+  date: 1788555600,
+  text: "/whoami"
+}

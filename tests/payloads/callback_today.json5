@@ -1,0 +1,21 @@
+// tests/payloads/callback_today.json5
+// Callback query: btn:today
+{
+  id: "cb_q_today_101",
+  from: {
+    id: 111222,
+    is_bot: false,
+    first_name: "Abebe",
+    username: "abebek"
+  },
+  message: {
+    message_id: 101,
+    chat: {
+      id: 111222,
+      type: "private"
+    },
+    date: 1788555600,
+    text: "Welcome"
+  },
+  data: "btn:today"
+}
