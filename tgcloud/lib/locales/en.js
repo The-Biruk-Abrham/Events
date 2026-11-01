@@ -76,14 +76,24 @@ export default {
 
   // Idle Message Hints
   'idle.officer_forward_hint':
-    '💡 *You forwarded a message!*\n\n' +
+    '💡 *You forwarded or sent a media message!*\n\n' +
     'To submit an event to Addis Ababa Science and Technology University (AASTU) Events Hub, ' +
     'please tap the *📝 Submit Post* button below or use /submit.',
   'idle.regular_user_hint':
     '👋 *Welcome to Addis Ababa Science and Technology University (AASTU) Events Hub!*\n\n' +
     'Use /today, /week, or /events to browse upcoming events on campus.',
 
+  // Configuration Safety
+  'config.owner_not_configured':
+    '⚠️ Bot OWNER_ID is not configured. Use /whoami in private chat with the bot to check your user ID, then configure OWNER_ID in tgcloud/lib/config.js.',
+  'config.channel_not_configured':
+    'Public channel ID (CHANNEL_ID) is not configured in tgcloud/lib/config.js.',
+  'config.admin_group_not_configured':
+    'Admin review group ID (ADMIN_GROUP_ID) is not configured in tgcloud/lib/config.js.',
+
   // Submission Wizard
+  'submit.album_first_item_note':
+    'ℹ️ *Album received:* We have accepted the first item for your event announcement.\n\n',
   'submit.access_restricted':
     '⚠️ *Access Restricted*\n\n' +
     'Only registered club representatives can submit events to Addis Ababa Science and Technology University (AASTU) Events Hub.\n\n' +
@@ -258,3 +268,4 @@ export default {
   'owner.all_officers_title': '👥 *Registered Clubs & Verified Representatives:*',
   'owner.no_clubs': '⚠️ No registered clubs found in database.',
 };
+

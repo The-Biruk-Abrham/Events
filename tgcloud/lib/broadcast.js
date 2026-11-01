@@ -83,7 +83,7 @@ export function prepareBroadcastPayload(event, useMarkdown = true) {
  */
 export async function broadcastEventToChannel({ api, event, channelId }) {
   if (!channelId) {
-    throw new Error('Public channel ID is not configured.');
+    throw new Error('Public channel ID (CHANNEL_ID) is not configured.');
   }
 
   async function sendWithMode(useMarkdown) {
@@ -189,12 +189,20 @@ export async function updateChannelMessageInPlace({ api, event, channelId, messa
           parse_mode: 'Markdown',
         });
       } else {
-        const title = event.title || 'Upcoming Event';
-        const shortCaption = `📢 *${safeEscape(title)}*`;
+        const isForwarded = Boolean(raw.is_forwarded);
+        let shortCaption = '';
+        if (isForwarded) {
+          const firstLine = postText.split('\n')[0].trim();
+          shortCaption = firstLine.length <= 200 ? firstLine : '';
+        } else {
+          const title = event.title || 'Upcoming Event';
+          shortCaption = `📢 *${safeEscape(title)}*`;
+        }
+
         await api.editMessageCaption({
           chat_id: channelId,
           message_id: messageId,
-          caption: shortCaption,
+          caption: shortCaption || undefined,
           parse_mode: 'Markdown',
         });
         if (extraMessageId) {
@@ -220,3 +228,4 @@ export async function updateChannelMessageInPlace({ api, event, channelId, messa
     return false;
   }
 }
+

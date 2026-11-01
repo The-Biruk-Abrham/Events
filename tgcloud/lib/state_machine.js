@@ -117,6 +117,7 @@ export function extractRawContent(message, user) {
     file_ids: fileIds,
     caption: caption.trim(),
     is_forwarded: isForwarded,
+    media_group_id: message.media_group_id ? String(message.media_group_id) : null,
     submitter_telegram_id: user?.id ? Number(user.id) : null,
     submitter_username: user?.username ? String(user.username) : null,
     forward_info: forwardInfo,
@@ -361,3 +362,4 @@ export function processLocationInput(draft, locText) {
 
   return { nextState: SUBMISSION_STATES.CONFIRM, draft: updatedDraft };
 }
+

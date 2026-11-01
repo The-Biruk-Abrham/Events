@@ -2,12 +2,15 @@
 // Central router for Telegram messages and callback queries.
 // Implements session-based conversation flows, permission enforcement, and atomic state updates.
 
-import { api } from 'sdk';
+import { db, api } from 'sdk';
+import { eq } from 'sdk/db';
+import { events } from '../schema.js';
 import {
   OWNER_ID,
   ADMIN_GROUP_ID,
   CHANNEL_ID,
   UNIVERSITY_NAME,
+  isConfigured,
 } from './config.js';
 import { t } from './i18n.js';
 import { isOwner, isAdmin, isVerifiedRep, canSubmit, canPublishDirectly } from './auth.js';
@@ -51,7 +54,7 @@ import {
   addOfficer,
   removeOfficer,
 } from './services/officers.js';
-import { getSession, setSession, clearSession } from './session.js';
+import { getSession, setSession, clearSession, transitionSession } from './session.js';
 import {
   SUBMISSION_STATES,
   OWNER_STATES,
@@ -70,7 +73,7 @@ import {
   updateChannelMessageInPlace,
 } from './broadcast.js';
 import { runSeed } from './seed.js';
-import { parseEventDateTimeInput } from './time.js';
+import { nowSec, formatPreviewDateTime, parseEventDateTimeInput } from './time.js';
 
 /**
  * Safely edits a callback query's message (caption for media messages, text for text messages).
@@ -151,7 +154,10 @@ export async function safeEditQueryMessage(query, text, replyMarkup = null, pars
  * Sends notification card for pending event to the Admin Group.
  */
 async function sendAdminPendingNotification(event) {
-  if (!ADMIN_GROUP_ID) return null;
+  if (!isConfigured(ADMIN_GROUP_ID)) {
+    console.warn('[router] ADMIN_GROUP_ID is not configured; pending notification card could not be sent to admin group.');
+    return null;
+  }
 
   const raw = event.raw_content || event.rawContent || {};
   const mediaType = raw.media_type;
@@ -244,6 +250,10 @@ export async function handleMessageUpdate(message, ctx) {
 
   // 3. Setup Command (Owner only)
   if (text === '/setup') {
+    if (!isConfigured(OWNER_ID)) {
+      await api.sendMessage({ chat_id: chatId, text: t('config.owner_not_configured', 'en') });
+      return;
+    }
     if (!isOwner(userId)) {
       await api.sendMessage({ chat_id: chatId, text: t('common.access_denied', 'en') });
       return;
@@ -269,6 +279,10 @@ export async function handleMessageUpdate(message, ctx) {
 
   // 4. Seed Command (Owner only)
   if (text === '/seed') {
+    if (!isConfigured(OWNER_ID)) {
+      await api.sendMessage({ chat_id: chatId, text: t('config.owner_not_configured', 'en') });
+      return;
+    }
     if (!isOwner(userId)) {
       await api.sendMessage({ chat_id: chatId, text: t('common.access_denied', 'en') });
       return;
@@ -405,6 +419,10 @@ export async function handleMessageUpdate(message, ctx) {
 
   // 10. Owner Direct Commands
   if (text === '/add_club_admin') {
+    if (!isConfigured(OWNER_ID)) {
+      await api.sendMessage({ chat_id: chatId, text: t('config.owner_not_configured', 'en') });
+      return;
+    }
     if (!isOwner(userId)) {
       await api.sendMessage({ chat_id: chatId, text: t('common.access_denied', 'en') });
       return;
@@ -425,6 +443,10 @@ export async function handleMessageUpdate(message, ctx) {
   }
 
   if (text === '/remove_club_admin') {
+    if (!isConfigured(OWNER_ID)) {
+      await api.sendMessage({ chat_id: chatId, text: t('config.owner_not_configured', 'en') });
+      return;
+    }
     if (!isOwner(userId)) {
       await api.sendMessage({ chat_id: chatId, text: t('common.access_denied', 'en') });
       return;
@@ -445,6 +467,10 @@ export async function handleMessageUpdate(message, ctx) {
   }
 
   if (text === '/add_club') {
+    if (!isConfigured(OWNER_ID)) {
+      await api.sendMessage({ chat_id: chatId, text: t('config.owner_not_configured', 'en') });
+      return;
+    }
     if (!isOwner(userId)) {
       await api.sendMessage({ chat_id: chatId, text: t('common.access_denied', 'en') });
       return;
@@ -459,6 +485,10 @@ export async function handleMessageUpdate(message, ctx) {
   }
 
   if (text === '/officers') {
+    if (!isConfigured(OWNER_ID)) {
+      await api.sendMessage({ chat_id: chatId, text: t('config.owner_not_configured', 'en') });
+      return;
+    }
     if (!isOwner(userId)) {
       await api.sendMessage({ chat_id: chatId, text: t('common.access_denied', 'en') });
       return;
@@ -514,6 +544,12 @@ export async function handleMessageUpdate(message, ctx) {
   if (session) {
     const state = session.state;
     const data = session.data || {};
+
+    // Album deduplication: If incoming message has a media_group_id matching an already captured media_group_id in this session,
+    // ignore it safely so subsequent photos of an album do not corrupt session or fail title input.
+    if (message.media_group_id && data.media_group_id && String(message.media_group_id) === String(data.media_group_id)) {
+      return;
+    }
 
     // OWNER FLOWS
     if (state === OWNER_STATES.ADD_OFFICER_INPUT) {
@@ -649,11 +685,28 @@ export async function handleMessageUpdate(message, ctx) {
     // SUBMISSION FLOWS
     if (state === SUBMISSION_STATES.CONTENT) {
       const raw = extractRawContent(message, user);
-      const updatedDraft = { ...data, raw_content: raw };
-      await setSession(userId, SUBMISSION_STATES.TITLE, updatedDraft);
+      const isAlbum = Boolean(message.media_group_id);
+      const updatedDraft = {
+        ...data,
+        raw_content: raw,
+        media_group_id: isAlbum ? String(message.media_group_id) : null,
+      };
+
+      if (isAlbum) {
+        // Atomic transition ensures only the first item of concurrent album messages transitions state
+        const transitioned = await transitionSession(userId, SUBMISSION_STATES.CONTENT, SUBMISSION_STATES.TITLE, updatedDraft);
+        if (!transitioned) {
+          // Another concurrent update from the same album already transitioned the session
+          return;
+        }
+      } else {
+        await setSession(userId, SUBMISSION_STATES.TITLE, updatedDraft);
+      }
+
+      const albumNotice = isAlbum ? t('submit.album_first_item_note', 'en') : '';
       await api.sendMessage({
         chat_id: chatId,
-        text: t('submit.step_title', 'en'),
+        text: albumNotice + t('submit.step_title', 'en'),
         parse_mode: 'Markdown',
       });
       return;
@@ -825,10 +878,27 @@ export async function handleMessageUpdate(message, ctx) {
     message.forward_date
   );
 
+  const isMedia = Boolean(
+    (message.photo && message.photo.length > 0) ||
+    message.video ||
+    message.animation ||
+    message.document ||
+    message.audio ||
+    message.voice
+  );
+
   const isOfficer = await isVerifiedRep(userId);
   const userIsOwner = isOwner(userId);
 
-  if (isForwarded) {
+  if (isForwarded || isMedia) {
+    if (message.media_group_id) {
+      const existingSession = await getSession(userId);
+      if (existingSession?.data?.idle_media_group_id === String(message.media_group_id)) {
+        return;
+      }
+      await setSession(userId, 'idle', { idle_media_group_id: String(message.media_group_id) });
+    }
+
     if (isOfficer || userIsOwner) {
       await api.sendMessage({
         chat_id: chatId,
@@ -1050,21 +1120,61 @@ export async function handleCallbackQueryUpdate(query, ctx) {
         if (created.status === 'approved') {
           // Direct publish flow
           let broadcastRes = null;
-          try {
-            broadcastRes = await broadcastEventToChannel({
-              api,
-              event: created,
-              channelId: CHANNEL_ID,
-            });
-            if (broadcastRes?.channelMessageId) {
-              await setChannelMessageIds(userId, created.id, broadcastRes.channelMessageId, broadcastRes.channelExtraMessageId);
+          let broadcastError = null;
+
+          if (!isConfigured(CHANNEL_ID)) {
+            broadcastError = new Error('Public channel ID (CHANNEL_ID) is not configured.');
+          } else {
+            try {
+              broadcastRes = await broadcastEventToChannel({
+                api,
+                event: created,
+                channelId: CHANNEL_ID,
+              });
+              if (broadcastRes?.channelMessageId) {
+                await setChannelMessageIds(userId, created.id, broadcastRes.channelMessageId, broadcastRes.channelExtraMessageId);
+              }
+            } catch (bErr) {
+              broadcastError = bErr;
+              console.error('[router] Direct publish broadcast error:', bErr);
             }
-          } catch (bErr) {
-            console.error('[router] Direct publish broadcast error:', bErr);
           }
 
-          // Admin Group log
-          if (ADMIN_GROUP_ID) {
+          if (broadcastError) {
+            // Failed broadcast:
+            // 1. Never leave event approved but unposted: revert status to pending
+            await db.update(events)
+              .set({ status: 'pending', approvedAt: null, approvedBy: null })
+              .where(eq(events.id, created.id))
+              .run();
+
+            // 2. Alert the admin group with retry button
+            if (isConfigured(ADMIN_GROUP_ID)) {
+              try {
+                const retryKb = buildRetryBroadcastKeyboard(created.id);
+                await api.sendMessage({
+                  chat_id: ADMIN_GROUP_ID,
+                  text: t('admin.broadcast_failed_alert', 'en', {
+                    title: safeEscape(created.title),
+                    error: safeEscape(broadcastError.message || String(broadcastError)),
+                  }),
+                  parse_mode: 'Markdown',
+                  reply_markup: retryKb,
+                });
+              } catch (e) {
+                console.warn('[router] Failed to alert admin group of direct publish broadcast failure:', e);
+              }
+            } else {
+              console.warn('[router] ADMIN_GROUP_ID is not configured, cannot send failure alert.');
+            }
+
+            // 3. Inform the submitter
+            await safeEditQueryMessage(query, t('admin.broadcast_failed_dm', 'en', { title: safeEscape(created.title) }));
+            return;
+          }
+
+          // Direct publish succeeded: One-line info log to Admin Group
+          if (isConfigured(ADMIN_GROUP_ID)) {
             try {
               const actorDisplay = user.first_name || user.username || String(userId);
               const logMsg = t('submit.admin_log_direct', 'en', {
@@ -1206,13 +1316,28 @@ export async function handleCallbackQueryUpdate(query, ctx) {
     }
 
     if (data.startsWith('adm:app:')) {
-      await ack();
       const eventId = parseInt(data.split(':')[2], 10);
+      let approved = null;
       try {
-        const approved = await approveEvent(userId, eventId);
+        approved = await approveEvent(userId, eventId);
+      } catch (err) {
+        if (err.code === 'ALREADY_APPROVED' || err.code === 'ALREADY_REJECTED') {
+          await ack(t('admin.already_processed', 'en'), true);
+          return;
+        }
+        await ack(`⚠️ ${err.message}`, true);
+        return;
+      }
 
-        // 1. Broadcast to Public Channel
-        let broadcastRes = null;
+      await ack();
+
+      // 1. Broadcast to Public Channel
+      let broadcastRes = null;
+      let broadcastError = null;
+
+      if (!isConfigured(CHANNEL_ID)) {
+        broadcastError = new Error('Public channel ID (CHANNEL_ID) is not configured.');
+      } else {
         try {
           broadcastRes = await broadcastEventToChannel({
             api,
@@ -1223,97 +1348,114 @@ export async function handleCallbackQueryUpdate(query, ctx) {
             await setChannelMessageIds(userId, approved.id, broadcastRes.channelMessageId, broadcastRes.channelExtraMessageId);
           }
         } catch (bErr) {
+          broadcastError = bErr;
           console.error('[router] Channel broadcast error on approval:', bErr);
-          // Broadcast failed: alert admin group with retry button and notify submitter
-          const retryKb = buildRetryBroadcastKeyboard(approved.id);
-          if (ADMIN_GROUP_ID) {
+        }
+      }
+
+      if (broadcastError) {
+        // Failed broadcast:
+        // 1. Never leave event approved but unposted: revert status to pending
+        await db.update(events)
+          .set({ status: 'pending', approvedAt: null, approvedBy: null })
+          .where(eq(events.id, approved.id))
+          .run();
+
+        // 2. Alert the admin group with retry button
+        if (isConfigured(ADMIN_GROUP_ID)) {
+          try {
+            const retryKb = buildRetryBroadcastKeyboard(approved.id);
             await api.sendMessage({
               chat_id: ADMIN_GROUP_ID,
               text: t('admin.broadcast_failed_alert', 'en', {
                 title: safeEscape(approved.title),
-                error: safeEscape(bErr.message || String(bErr)),
+                error: safeEscape(broadcastError.message || String(broadcastError)),
               }),
               parse_mode: 'Markdown',
               reply_markup: retryKb,
             });
-          }
-          const raw = approved.raw_content || approved.rawContent || {};
-          if (raw.submitter_telegram_id) {
-            try {
-              await api.sendMessage({
-                chat_id: raw.submitter_telegram_id,
-                text: t('admin.broadcast_failed_dm', 'en', { title: safeEscape(approved.title) }),
-                parse_mode: 'Markdown',
-              });
-            } catch (e) {}
+          } catch (e) {
+            console.warn('[router] Failed to alert admin group of broadcast failure:', e);
           }
         }
 
-        // 2. Update Admin Group card in place
-        const channelInfo = broadcastRes?.channelMessageId ? ` (Channel Post #${broadcastRes.channelMessageId})` : '';
-        const adminName = user.first_name || user.username || String(userId);
-        const cardSummary = t('admin.approved_card', 'en', {
-          adminName: safeEscape(adminName),
-          channelInfo,
-          title: safeEscape(approved.title),
-          club: safeEscape(approved.club_name),
-          time: approved.startDatetime ? formatPreviewDateTime(approved.startDatetime) : 'TBD',
-          location: safeEscape(approved.location),
-        });
-        await safeEditQueryMessage(query, cardSummary);
+        // 3. Inform the submitter
+        const raw = approved.raw_content || approved.rawContent || {};
+        if (raw.submitter_telegram_id) {
+          try {
+            await api.sendMessage({
+              chat_id: raw.submitter_telegram_id,
+              text: t('admin.broadcast_failed_dm', 'en', { title: safeEscape(approved.title) }),
+              parse_mode: 'Markdown',
+            });
+          } catch (e) {}
+        }
 
-        // 3. Notify submitter if channel broadcast was successful
-        if (broadcastRes?.channelMessageId) {
-          const raw = approved.raw_content || approved.rawContent || {};
-          if (raw.submitter_telegram_id) {
-            try {
-              await api.sendMessage({
-                chat_id: raw.submitter_telegram_id,
-                text: t('admin.submitter_approved_dm', 'en', { title: safeEscape(approved.title) }),
-                parse_mode: 'Markdown',
-              });
-            } catch (e) {}
-          }
+        return;
+      }
+
+      // 2. Update Admin Group card in place
+      const channelInfo = broadcastRes?.channelMessageId ? ` (Channel Post #${broadcastRes.channelMessageId})` : '';
+      const adminName = user.first_name || user.username || String(userId);
+      const cardSummary = t('admin.approved_card', 'en', {
+        adminName: safeEscape(adminName),
+        channelInfo,
+        title: safeEscape(approved.title),
+        club: safeEscape(approved.club_name),
+        time: approved.startDatetime ? formatPreviewDateTime(approved.startDatetime) : 'TBD',
+        location: safeEscape(approved.location),
+      });
+      await safeEditQueryMessage(query, cardSummary);
+
+      // 3. Notify submitter if channel broadcast was successful
+      if (broadcastRes?.channelMessageId) {
+        const raw = approved.raw_content || approved.rawContent || {};
+        if (raw.submitter_telegram_id) {
+          try {
+            await api.sendMessage({
+              chat_id: raw.submitter_telegram_id,
+              text: t('admin.submitter_approved_dm', 'en', { title: safeEscape(approved.title) }),
+              parse_mode: 'Markdown',
+            });
+          } catch (e) {}
         }
-      } catch (err) {
-        if (err.code === 'ALREADY_APPROVED' || err.code === 'ALREADY_REJECTED') {
-          await ack(t('admin.already_processed', 'en'), true);
-          return;
-        }
-        await ack(`⚠️ ${err.message}`, true);
       }
       return;
     }
 
     if (data.startsWith('adm:rej:')) {
-      await ack();
       const eventId = parseInt(data.split(':')[2], 10);
+      let rejected = null;
       try {
-        const rejected = await rejectEvent(userId, eventId);
-        const adminName = user.first_name || user.username || String(userId);
-        const summary = t('admin.rejected_card', 'en', {
-          adminName: safeEscape(adminName),
-          title: safeEscape(rejected.title),
-          club: safeEscape(rejected.club_name),
-        });
-        await safeEditQueryMessage(query, summary);
-
-        const raw = rejected.raw_content || rejected.rawContent || {};
-        if (raw.submitter_telegram_id) {
-          try {
-            await api.sendMessage({
-              chat_id: raw.submitter_telegram_id,
-              text: t('admin.submitter_rejected_dm', 'en', { title: safeEscape(rejected.title) }),
-              parse_mode: 'Markdown',
-            });
-          } catch (e) {}
-        }
+        rejected = await rejectEvent(userId, eventId);
       } catch (err) {
         if (err.code === 'ALREADY_APPROVED' || err.code === 'ALREADY_REJECTED') {
           await ack(t('admin.already_processed', 'en'), true);
           return;
         }
         await ack(`⚠️ ${err.message}`, true);
+        return;
+      }
+
+      await ack();
+
+      const adminName = user.first_name || user.username || String(userId);
+      const summary = t('admin.rejected_card', 'en', {
+        adminName: safeEscape(adminName),
+        title: safeEscape(rejected.title),
+        club: safeEscape(rejected.club_name),
+      });
+      await safeEditQueryMessage(query, summary);
+
+      const raw = rejected.raw_content || rejected.rawContent || {};
+      if (raw.submitter_telegram_id) {
+        try {
+          await api.sendMessage({
+            chat_id: raw.submitter_telegram_id,
+            text: t('admin.submitter_rejected_dm', 'en', { title: safeEscape(rejected.title) }),
+            parse_mode: 'Markdown',
+          });
+        } catch (e) {}
       }
       return;
     }
@@ -1372,15 +1514,45 @@ export async function handleCallbackQueryUpdate(query, ctx) {
         return;
       }
 
+      if (!isConfigured(CHANNEL_ID)) {
+        await safeEditQueryMessage(query, t('admin.retry_failed', 'en', { error: 'Public channel ID (CHANNEL_ID) is not configured.' }), buildRetryBroadcastKeyboard(eventId));
+        return;
+      }
+
       try {
         const res = await broadcastEventToChannel({
           api,
           event: ev,
           channelId: CHANNEL_ID,
         });
-        if (res?.channelMessageId) {
+
+        // Broadcast succeeded: approve event atomically and save channelMessageId
+        const now = nowSec();
+        await db.update(events)
+          .set({
+            status: 'approved',
+            approvedAt: now,
+            approvedBy: String(userId),
+            channelMessageId: res.channelMessageId,
+          })
+          .where(eq(events.id, ev.id))
+          .run();
+
+        if (res?.channelExtraMessageId) {
           await setChannelMessageIds(userId, ev.id, res.channelMessageId, res.channelExtraMessageId);
         }
+
+        const raw = ev.raw_content || ev.rawContent || {};
+        if (raw.submitter_telegram_id) {
+          try {
+            await api.sendMessage({
+              chat_id: raw.submitter_telegram_id,
+              text: t('admin.submitter_approved_dm', 'en', { title: safeEscape(ev.title) }),
+              parse_mode: 'Markdown',
+            });
+          } catch (e) {}
+        }
+
         await safeEditQueryMessage(query, t('admin.retry_success', 'en'));
       } catch (err) {
         await safeEditQueryMessage(query, t('admin.retry_failed', 'en', { error: safeEscape(err.message) }), buildRetryBroadcastKeyboard(eventId));
@@ -1391,6 +1563,10 @@ export async function handleCallbackQueryUpdate(query, ctx) {
 
   // 5. Owner management callbacks
   if (data.startsWith('own:')) {
+    if (!isConfigured(OWNER_ID)) {
+      await ack(t('config.owner_not_configured', 'en'), true);
+      return;
+    }
     if (!isOwner(userId)) {
       await ack(t('common.access_denied', 'en'), true);
       return;
@@ -1514,3 +1690,4 @@ export async function handleCallbackQueryUpdate(query, ctx) {
 
   await ack();
 }
+

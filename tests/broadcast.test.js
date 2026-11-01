@@ -47,8 +47,10 @@ describe('Broadcast Caption Splitting and Telegram Limits', () => {
     assert.equal(payload.followUpText, null);
   });
 
-  it('handles 1025-character media caption by preparing follow-up reply message', () => {
-    const caption1025 = 'C'.repeat(1025);
+  it('handles 1025-character media caption for forwarded post with no added header', () => {
+    const firstLine = 'Important Announcement Header Line';
+    const longBody = 'C'.repeat(1025 - firstLine.length - 1);
+    const caption1025 = `${firstLine}\n${longBody}`;
     const event = {
       ...baseEvent,
       raw_content: {
@@ -61,8 +63,32 @@ describe('Broadcast Caption Splitting and Telegram Limits', () => {
 
     const payload = prepareBroadcastPayload(event);
     assert.equal(payload.isMedia, true);
-    assert.equal(payload.mediaCaption.length <= 1024, true);
+    // Forwarded message caption carries first line or empty, NO added header like 📢 *Title*
+    assert.equal(payload.mediaCaption, firstLine);
+    assert.doesNotMatch(payload.mediaCaption, /📢/);
     assert.equal(payload.followUpText, caption1025);
+  });
+
+  it('handles 1025-character media caption for manual submission with title header', () => {
+    const longCaption = 'M'.repeat(1025);
+    const event = {
+      ...baseEvent,
+      title: 'Manual Hackathon',
+      raw_content: {
+        media_type: 'photo',
+        file_ids: ['photo_id_123'],
+        is_forwarded: false,
+        caption: longCaption,
+      },
+    };
+
+    const payload = prepareBroadcastPayload(event);
+    assert.equal(payload.isMedia, true);
+    // Manual submission carries title header
+    assert.match(payload.mediaCaption, /📢 \*Manual Hackathon\*/);
+    assert.equal(payload.mediaCaption.length <= 1024, true);
+    assert.equal(typeof payload.followUpText, 'string');
+    assert.match(payload.followUpText, /Manual Hackathon/);
   });
 
   it('handles 4100-character text message by splitting into 4096 and remainder follow-up', () => {
@@ -84,3 +110,4 @@ describe('Broadcast Caption Splitting and Telegram Limits', () => {
     assert.equal(payload.mainText + payload.followUpText, text4100);
   });
 });
+

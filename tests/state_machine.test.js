@@ -29,7 +29,26 @@ describe('State Machine & Submission Flows', () => {
     assert.deepEqual(raw.file_ids, ['large_id']);
     assert.equal(raw.caption, '🚀 Hackathon Announcement!');
     assert.equal(raw.is_forwarded, false);
+    assert.equal(raw.media_group_id, null);
     assert.equal(raw.submitter_telegram_id, 123456);
+  });
+
+  it('extracts raw content from album photo preserving media_group_id', () => {
+    const msg = {
+      photo: [
+        { file_id: 'thumb_id', width: 100 },
+        { file_id: 'best_photo_1', width: 1200 },
+      ],
+      media_group_id: '139847291847192',
+      caption: 'Album First Photo Caption',
+    };
+    const user = { id: 654321, username: 'club_rep' };
+
+    const raw = extractRawContent(msg, user);
+    assert.equal(raw.media_type, 'photo');
+    assert.deepEqual(raw.file_ids, ['best_photo_1']);
+    assert.equal(raw.media_group_id, '139847291847192');
+    assert.equal(raw.caption, 'Album First Photo Caption');
   });
 
   it('extracts raw content from forwarded channel post', () => {
