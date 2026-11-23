@@ -7,9 +7,9 @@
   },
   "scripts": {
     "test": "node --test tests/*.test.js",
+    "test:ui": "node scripts/test_ui.js",
     "deploy": "tgcloud push",
     "status": "tgcloud status",
     "run": "tgcloud run"
   }
 }
-

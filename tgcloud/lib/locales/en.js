@@ -19,43 +19,54 @@ export default {
   'common.page_footer': ({ page, total }) => `\n\n_Page ${page} of ${total}_`,
 
   // /whoami and /chatid commands
-  'command.whoami': ({ userId, username }) => `👤 *Your Telegram Profile:*\n• User ID: \`${userId}\`${username ? `\n• Username: @${username}` : ''}`,
+  'command.whoami': ({ userId, username, role, clubs, permissions }) =>
+    `👤 *Your Telegram Profile:*\n` +
+    `• User ID: \`${userId}\`\n` +
+    (username ? `• Username: @${username}\n` : '') +
+    `• Role: ${role || '👤 Student / Campus Member'}\n` +
+    (clubs ? `• Associated Club(s): *${clubs}*\n` : '') +
+    (permissions ? `• Permissions: _${permissions}_\n` : ''),
   'command.chatid': ({ chatId, chatType, chatTitle }) => `📍 *Current Chat Information:*\n• Chat ID: \`${chatId}\`\n• Type: \`${chatType}\`${chatTitle ? `\n• Title: *${chatTitle}*` : ''}`,
   'command.setup_success': '✅ Bot commands menu successfully configured via Telegram Bot API!',
 
   // Start & Help
-  'start.welcome': ({ name, officerLines, ownerLines }) =>
-    `👋 *Welcome to Addis Ababa Science and Technology University (AASTU) Events Hub${name ? `, ${name}` : ''}!* 🎓\n\n` +
-    'Your single source of truth for all campus activities, club events, workshops, and sports at AASTU.\n\n' +
-    '📌 *Available Commands:*\n' +
-    '• `/today` — View events happening today\n' +
+  'start.welcome': ({ name, roleBadge }) =>
+    `👋 *Welcome to AASTU Events Hub${name ? `, ${name}` : ''}!* 🎓\n\n` +
+    'Your central campus hub for student club activities, tech workshops, hackathons, and sports.\n\n' +
+    (roleBadge ? `${roleBadge}\n\n` : '') +
+    'Tap a button below to get started, or send /help for all commands:',
+
+  'help.guide': ({ officerLines, ownerLines }) =>
+    '📚 *AASTU Events Hub — Command Guide*\n\n' +
+    '📌 *Student & Campus Commands:*\n' +
+    '• `/today` — View events happening today on campus\n' +
     '• `/week` — View the 7-day schedule grouped by day\n' +
-    '• `/events` — Browse events by category with inline picker\n' +
-    (officerLines ? `${officerLines}` : '') +
-    '• `/cancel` — Cancel any active action and return here\n' +
-    '• `/whoami` — Check your numeric Telegram ID\n' +
-    '• `/chatid` — Check current chat ID\n' +
-    '• `/help` — Show this guide and command list\n\n' +
-    (ownerLines ? `${ownerLines}` : '') +
-    'Tap a button below to get started immediately:',
-  
-  'start.officer_command_line': '• `/submit` — Submit a new club event (verified club representatives only)\n',
+    '• `/events` — Browse campus events by category\n' +
+    '• `/whoami` — Check your Telegram ID, role, and permissions\n' +
+    '• `/chatid` — Check the current chat or group ID\n' +
+    '• `/cancel` — Cancel any active action and return to main menu\n' +
+    '• `/help` — Show this command reference guide\n\n' +
+    (officerLines ? `${officerLines}\n` : '') +
+    (ownerLines ? `${ownerLines}\n` : '') +
+    '💡 *Tip:* Use the touch-friendly buttons below for fast navigation.',
+
+  'start.officer_command_line':
+    '🏛️ *Club Representative Commands:*\n' +
+    '• `/submit` — Submit an event announcement for review & broadcast\n',
   'start.owner_commands':
-    '👑 *Owner Commands:*\n' +
+    '👑 *Administrative Commands:*\n' +
     '• `/add_club` — Register a new university club\n' +
     '• `/add_club_admin` — Add a verified club representative\n' +
     '• `/remove_club_admin` — Remove a club representative\n' +
-    '• `/officers` — View all verified club representatives\n' +
-    '• `/seed` — Seed development sample data\n' +
-    '• `/setup` — Register bot menu commands\n\n',
+    '• `/officers` — View all verified club representatives\n',
 
   // Buttons on Start Keyboard
   'btn.today': "☀️ Today's Events",
   'btn.week': '🗓️ This Week',
   'btn.categories': '🏷️ Browse by Category',
   'btn.submit': '📝 Submit Post',
-  'btn.add_club_admin': '➕ Add Club Admin',
-  'btn.remove_club_admin': '➖ Remove Club Admin',
+  'btn.add_club_admin': '➕ Add Club Officer',
+  'btn.remove_club_admin': '➖ Remove Club Officer',
   'btn.register_club': '🏛️ Register New Club',
 
   // Browsing Events

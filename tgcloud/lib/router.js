@@ -216,9 +216,34 @@ export async function handleMessageUpdate(message, ctx) {
 
   // 1. Diagnostic / Identity Commands
   if (text === '/whoami') {
+    const userIsOwner = isOwner(userId);
+    const userIsAdmin = isAdmin(userId);
+    const repClubs = await getClubsForOfficer(userId);
+    const isRep = repClubs && repClubs.length > 0;
+
+    let role = '👤 Student / Campus Member';
+    let permissions = 'Browse events (/today, /week, /events)';
+    let clubsStr = '';
+
+    if (userIsOwner) {
+      role = '👑 Bot Owner (Full Access)';
+      permissions = 'Full system control, direct publishing & officer management';
+    } else if (userIsAdmin) {
+      role = '🛡️ Review Admin';
+      permissions = 'Event approval, editing & broadcast publishing';
+    } else if (isRep) {
+      role = '🏛️ Verified Club Representative';
+      const canDirect = await canPublishDirectly(userId);
+      permissions = canDirect ? 'Direct event publishing (approved club)' : 'Submit events for admin approval';
+      clubsStr = repClubs.map(c => c.name).join(', ');
+    }
+
     const reply = t('command.whoami', 'en', {
       userId: userId || 'unknown',
       username: user?.username || '',
+      role,
+      permissions,
+      clubs: clubsStr,
     });
     await api.sendMessage({ chat_id: chatId, text: reply, parse_mode: 'Markdown' });
     return;
@@ -299,18 +324,32 @@ export async function handleMessageUpdate(message, ctx) {
   }
 
   // 5. Start & Help Commands
-  if (text.startsWith('/start') || text === '/help') {
+  if (text === '/help') {
+    const userIsOwner = isOwner(userId);
+    const userIsOfficer = (await isVerifiedRep(userId)) || userIsOwner;
+    const officerLines = userIsOfficer ? t('start.officer_command_line', 'en') : '';
+    const ownerLines = userIsOwner ? t('start.owner_commands', 'en') : '';
+    const guideText = t('help.guide', 'en', { officerLines, ownerLines });
+    const kb = buildStartKeyboard({ isOwner: userIsOwner, isOfficer: userIsOfficer });
+    await api.sendMessage({ chat_id: chatId, text: guideText, parse_mode: 'Markdown', reply_markup: kb });
+    return;
+  }
+
+  if (text.startsWith('/start')) {
     await clearSession(userId);
     const userIsOwner = isOwner(userId);
     const userIsOfficer = (await isVerifiedRep(userId)) || userIsOwner;
 
-    const officerLines = userIsOfficer ? t('start.officer_command_line', 'en') : '';
-    const ownerLines = userIsOwner ? t('start.owner_commands', 'en') : '';
+    let roleBadge = '';
+    if (userIsOwner) {
+      roleBadge = '👑 _Logged in as Bot Owner (Full Access)_';
+    } else if (userIsOfficer) {
+      roleBadge = '🏛️ _Logged in as Verified Club Officer_';
+    }
 
     const welcome = t('start.welcome', 'en', {
       name: user?.first_name || 'Student',
-      officerLines,
-      ownerLines,
+      roleBadge,
     });
     const kb = buildStartKeyboard({ isOwner: userIsOwner, isOfficer: userIsOfficer });
     await api.sendMessage({ chat_id: chatId, text: welcome, parse_mode: 'Markdown', reply_markup: kb });
@@ -320,12 +359,14 @@ export async function handleMessageUpdate(message, ctx) {
   // 6. Today Command
   if (text === '/today') {
     const todayEvents = await getEvents({ status: 'approved', range: 'today' });
-    const { text: formatted, totalPages } = formatTodayEvents(todayEvents, 1, 3);
+    const { text: formatted, totalPages, pageEvents, startIdx } = formatTodayEvents(todayEvents, 1, 3);
     const kb = buildPaginationKeyboard({
       currentPage: 1,
       totalPages,
       prefix: 'p:today',
       showMainMenu: true,
+      events: pageEvents,
+      startIdx,
     });
     await api.sendMessage({
       chat_id: chatId,
@@ -409,10 +450,16 @@ export async function handleMessageUpdate(message, ctx) {
       is_direct_publish: directPublish,
     });
 
+    const cancelKb = {
+      inline_keyboard: [
+        [{ text: t('common.cancel', 'en'), callback_data: 'sub:x' }],
+      ],
+    };
     await api.sendMessage({
       chat_id: chatId,
       text: t('submit.intro', 'en'),
       parse_mode: 'Markdown',
+      reply_markup: cancelKb,
     });
     return;
   }
@@ -961,12 +1008,15 @@ export async function handleCallbackQueryUpdate(query, ctx) {
     await clearSession(userId);
     const userIsOwner = isOwner(userId);
     const userIsOfficer = (await isVerifiedRep(userId)) || userIsOwner;
-    const officerLines = userIsOfficer ? t('start.officer_command_line', 'en') : '';
-    const ownerLines = userIsOwner ? t('start.owner_commands', 'en') : '';
+    let roleBadge = '';
+    if (userIsOwner) {
+      roleBadge = '👑 _Logged in as Bot Owner (Full Access)_';
+    } else if (userIsOfficer) {
+      roleBadge = '🏛️ _Logged in as Verified Club Officer_';
+    }
     const welcome = t('start.welcome', 'en', {
       name: user?.first_name || 'Student',
-      officerLines,
-      ownerLines,
+      roleBadge,
     });
     const kb = buildStartKeyboard({ isOwner: userIsOwner, isOfficer: userIsOfficer });
     await safeEditQueryMessage(query, welcome, kb);
@@ -976,12 +1026,14 @@ export async function handleCallbackQueryUpdate(query, ctx) {
   if (data === 'btn:today') {
     await ack();
     const todayEvents = await getEvents({ status: 'approved', range: 'today' });
-    const { text: formatted, totalPages } = formatTodayEvents(todayEvents, 1, 3);
+    const { text: formatted, totalPages, pageEvents, startIdx } = formatTodayEvents(todayEvents, 1, 3);
     const kb = buildPaginationKeyboard({
       currentPage: 1,
       totalPages,
       prefix: 'p:today',
       showMainMenu: true,
+      events: pageEvents,
+      startIdx,
     });
     await safeEditQueryMessage(query, formatted, kb);
     return;
@@ -991,12 +1043,14 @@ export async function handleCallbackQueryUpdate(query, ctx) {
     await ack();
     const targetPage = parseInt(data.split(':')[2], 10) || 1;
     const todayEvents = await getEvents({ status: 'approved', range: 'today' });
-    const { text: formatted, totalPages } = formatTodayEvents(todayEvents, targetPage, 3);
+    const { text: formatted, totalPages, pageEvents, startIdx } = formatTodayEvents(todayEvents, targetPage, 3);
     const kb = buildPaginationKeyboard({
       currentPage: targetPage,
       totalPages,
       prefix: 'p:today',
       showMainMenu: true,
+      events: pageEvents,
+      startIdx,
     });
     await safeEditQueryMessage(query, formatted, kb);
     return;
@@ -1030,13 +1084,15 @@ export async function handleCallbackQueryUpdate(query, ctx) {
     const cat = await getCategoryById(catId);
     const catName = cat?.name || 'Category';
     const catEvents = await getEvents({ status: 'approved', categoryId: catId });
-    const { text: formatted, totalPages } = formatCategoryEvents(catName, catEvents, 1, 3);
+    const { text: formatted, totalPages, pageEvents, startIdx } = formatCategoryEvents(catName, catEvents, 1, 3);
     const kb = buildPaginationKeyboard({
       currentPage: 1,
       totalPages,
       prefix: `p:cat:${catId}`,
       backCallback: 'btn:categories',
       showMainMenu: true,
+      events: pageEvents,
+      startIdx,
     });
     await safeEditQueryMessage(query, formatted, kb);
     return;
@@ -1050,13 +1106,15 @@ export async function handleCallbackQueryUpdate(query, ctx) {
     const cat = await getCategoryById(catId);
     const catName = cat?.name || 'Category';
     const catEvents = await getEvents({ status: 'approved', categoryId: catId });
-    const { text: formatted, totalPages } = formatCategoryEvents(catName, catEvents, targetPage, 3);
+    const { text: formatted, totalPages, pageEvents, startIdx } = formatCategoryEvents(catName, catEvents, targetPage, 3);
     const kb = buildPaginationKeyboard({
       currentPage: targetPage,
       totalPages,
       prefix: `p:cat:${catId}`,
       backCallback: 'btn:categories',
       showMainMenu: true,
+      events: pageEvents,
+      startIdx,
     });
     await safeEditQueryMessage(query, formatted, kb);
     return;
@@ -1079,7 +1137,34 @@ export async function handleCallbackQueryUpdate(query, ctx) {
       is_direct_publish: directPublish,
     });
 
-    await safeEditQueryMessage(query, t('submit.intro', 'en'));
+    const cancelKb = {
+      inline_keyboard: [
+        [{ text: t('common.cancel', 'en'), callback_data: 'sub:x' }],
+      ],
+    };
+    await safeEditQueryMessage(query, t('submit.intro', 'en'), cancelKb);
+    return;
+  }
+
+  // Event Single View Callback
+  if (data.startsWith('ev:v:')) {
+    await ack();
+    const eventId = parseInt(data.split(':')[2], 10);
+    const ev = await getEventById(eventId);
+    if (!ev) {
+      await safeEditQueryMessage(query, t('common.not_found', 'en'));
+      return;
+    }
+    const card = formatSingleEvent(ev);
+    const kb = {
+      inline_keyboard: [
+        [
+          { text: t('btn.today', 'en'), callback_data: 'btn:today' },
+          { text: t('common.main_menu', 'en'), callback_data: 'btn:main_menu' },
+        ],
+      ],
+    };
+    await safeEditQueryMessage(query, card, kb);
     return;
   }
 
@@ -1091,7 +1176,10 @@ export async function handleCallbackQueryUpdate(query, ctx) {
     if (data === 'sub:x') {
       await ack();
       await clearSession(userId);
-      await safeEditQueryMessage(query, t('common.cancelled', 'en'));
+      const userIsOwner = isOwner(userId);
+      const userIsOfficer = (await isVerifiedRep(userId)) || userIsOwner;
+      const kb = buildStartKeyboard({ isOwner: userIsOwner, isOfficer: userIsOfficer });
+      await safeEditQueryMessage(query, t('common.cancelled', 'en'), kb);
       return;
     }
 

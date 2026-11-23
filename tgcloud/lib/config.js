@@ -2,9 +2,9 @@
 // Replace these placeholders with your actual Telegram IDs before production deployment.
 // Tip: Use /whoami in DM to get your user ID, and /chatid in your group/channel to get their chat IDs.
 
-export const OWNER_ID = 0; // PLACEHOLDER: Replace with numeric Telegram User ID of the bot owner (e.g. 123456789)
-export const ADMIN_GROUP_ID = 0; // PLACEHOLDER: Replace with numeric Chat ID of the Admin Review Group (e.g. -1001234567890)
-export const CHANNEL_ID = '@aastu_events'; // PLACEHOLDER: Replace with channel username (e.g. '@aastu_events') or channel ID (e.g. -1009876543210)
+export const OWNER_ID = 8137095123; // PLACEHOLDER: Replace with numeric Telegram User ID of the bot owner (e.g. 123456789)
+export const ADMIN_GROUP_ID = -1003927460883; // PLACEHOLDER: Replace with numeric Chat ID of the Admin Review Group (e.g. -1001234567890)
+export const CHANNEL_ID = -1004211514766; // PLACEHOLDER: Replace with channel username (e.g. '@aastu_events') or channel ID (e.g. -1009876543210)
 
 /**
  * Checks if a config value is set and not a placeholder or default zero/empty.

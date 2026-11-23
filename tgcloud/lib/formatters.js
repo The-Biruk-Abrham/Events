@@ -54,12 +54,11 @@ export function formatEventCard(event, index = null) {
 
   const lines = [
     `${prefix}*${title}*`,
-    `  ${emoji} \`${categoryEscaped}\` • 🏢 ${club}`,
+    `  ${emoji} *${categoryEscaped}* • 🏢 ${club}`,
     `  ⏰ ${timeStr} • 📍 ${location}`,
   ];
 
   if (event.recurring && (event.recurrence_pattern || event.recurrencePattern)) {
-    lines.append
     lines.push(`  🔄 _${safeEscape(event.recurrence_pattern || event.recurrencePattern)}_`);
   }
 
@@ -152,6 +151,8 @@ export function formatTodayEvents(events, page = 1, pageSize = 3, lang = 'en') {
     text: header + body + footer,
     totalPages,
     totalCount,
+    pageEvents,
+    startIdx,
   };
 }
 
@@ -233,6 +234,8 @@ export function formatCategoryEvents(categoryName, events, page = 1, pageSize = 
     text: header + body + footer,
     totalPages,
     totalCount,
+    pageEvents,
+    startIdx,
   };
 }
 

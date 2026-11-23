@@ -48,8 +48,22 @@ export function buildPaginationKeyboard({
   backCallback = null,
   showMainMenu = false,
   lang = 'en',
+  events = [],
+  startIdx = 0,
 }) {
   const keyboard = [];
+
+  if (events && events.length > 0) {
+    const eventRow = [];
+    events.forEach((ev, idx) => {
+      const num = startIdx + idx + 1;
+      eventRow.push({
+        text: `🔍 #${num}`,
+        callback_data: `ev:v:${ev.id}`,
+      });
+    });
+    keyboard.push(eventRow);
+  }
 
   if (totalPages > 1) {
     const pageRow = [];
@@ -92,7 +106,15 @@ export function buildCategoriesKeyboard(categories, lang = 'en') {
   const keyboard = [];
   let row = [];
 
-  for (const cat of categories) {
+  const sorted = [...categories].sort((a, b) => {
+    const aOther = (a.name || '').toLowerCase().includes('other');
+    const bOther = (b.name || '').toLowerCase().includes('other');
+    if (aOther && !bOther) return 1;
+    if (!aOther && bOther) return -1;
+    return (a.name || '').localeCompare(b.name || '');
+  });
+
+  for (const cat of sorted) {
     const emoji = getCategoryEmoji(cat.name);
     row.push({ text: `${emoji} ${cat.name}`, callback_data: `cat:sel:${cat.id}` });
     if (row.length === 2) {
